@@ -293,37 +293,36 @@ def create_excel_output(recommendations_df, summary_stats, original_df):
                                            'Receive Site', 'Transfer Qty', 'Notes'])
             empty_df.to_excel(writer, sheet_name='調貨建議', index=False)
         
-        # 工作表2：統計摘要
-        with pd.ExcelWriter(output, engine='openpyxl', mode='a') as summary_writer:
-            start_row = 0
-            
-            # KPI概覽
-            kpi_df = pd.DataFrame({
-                'KPI': ['總調貨建議數量', '總調貨件數'],
-                '數值': [summary_stats['total_recommendations'], summary_stats['total_transfer_qty']]
-            })
-            kpi_df.to_excel(summary_writer, sheet_name='統計摘要', startrow=start_row, index=False)
-            start_row += len(kpi_df) + 3
-            
-            # 各統計表
-            tables = [
-                ('按Article統計', summary_stats['by_article']),
-                ('按OM統計', summary_stats['by_om']),
-                ('轉出類型分布', summary_stats['transfer_type_dist']),
-                ('接收類型分布', summary_stats['receive_type_dist'])
-            ]
-            
-            for title, table in tables:
-                if not table.empty:
-                    # 寫入標題
-                    title_df = pd.DataFrame([[title]], columns=[''])
-                    title_df.to_excel(summary_writer, sheet_name='統計摘要', 
-                                    startrow=start_row, index=False, header=False)
-                    start_row += 2
-                    
-                    # 寫入表格
-                    table.to_excel(summary_writer, sheet_name='統計摘要', startrow=start_row)
-                    start_row += len(table) + 3
+        # 工作表2：統計摘要 - 修復：直接在同一個writer中創建
+        start_row = 0
+        
+        # KPI概覽
+        kpi_df = pd.DataFrame({
+            'KPI': ['總調貨建議數量', '總調貨件數'],
+            '數值': [summary_stats['total_recommendations'], summary_stats['total_transfer_qty']]
+        })
+        kpi_df.to_excel(writer, sheet_name='統計摘要', startrow=start_row, index=False)
+        start_row += len(kpi_df) + 3
+        
+        # 各統計表
+        tables = [
+            ('按Article統計', summary_stats['by_article']),
+            ('按OM統計', summary_stats['by_om']),
+            ('轉出類型分布', summary_stats['transfer_type_dist']),
+            ('接收類型分布', summary_stats['receive_type_dist'])
+        ]
+        
+        for title, table in tables:
+            if not table.empty:
+                # 寫入標題
+                title_df = pd.DataFrame([[title]], columns=[''])
+                title_df.to_excel(writer, sheet_name='統計摘要', 
+                                startrow=start_row, index=False, header=False)
+                start_row += 2
+                
+                # 寫入表格
+                table.to_excel(writer, sheet_name='統計摘要', startrow=start_row)
+                start_row += len(table) + 3
     
     output.seek(0)
     return output
@@ -351,26 +350,26 @@ def main():
     # 文件上傳
     st.header("📁 數據上傳")
     
-    # 默認加載文件
-    default_file_path = "user_input_files/ELE_15Sep2025.XLSX"
-    use_default = st.checkbox("使用默認文件 (ELE_15Sep2025.XLSX)", value=True)
+    uploaded_file = st.file_uploader(
+        "選擇Excel文件", 
+        type=['xlsx', 'xls'],
+        help="支持.xlsx和.xls格式，請上傳包含庫存和銷售數據的Excel文件"
+    )
     
-    uploaded_file = None
-    if use_default:
-        try:
-            with open(default_file_path, 'rb') as f:
-                uploaded_file = io.BytesIO(f.read())
-            st.success(f"✅ 已加載默認文件: {default_file_path}")
-        except FileNotFoundError:
-            st.error(f"❌ 默認文件不存在: {default_file_path}")
-            use_default = False
-    
-    if not use_default:
-        uploaded_file = st.file_uploader(
-            "選擇Excel文件", 
-            type=['xlsx', 'xls'],
-            help="支持.xlsx和.xls格式"
-        )
+    if uploaded_file is None:
+        st.info("📤 請上傳Excel文件以開始分析")
+        st.markdown("""
+        **所需數據欄位：**
+        - Article (產品編號)
+        - RP Type (轉出類型：ND或RF)
+        - Site (店鋪編號)
+        - OM (營運管理單位)
+        - SaSa Net Stock (現有庫存)
+        - Pending Received (在途訂單)
+        - Safety Stock (安全庫存)
+        - Last Month Sold Qty (上月銷量)
+        - MTD Sold Qty (本月至今銷量)
+        """)
     
     if uploaded_file is not None:
         # 加載數據

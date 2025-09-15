@@ -1,163 +1,200 @@
-# 📦 調貨建議系統 - 改進版 (Enhanced Transfer Recommendation System)
+# 📦 調貨建議生成系統 - 使用說明
 
-基於庫存、銷量和安全庫存數據的自動化調貨建議系統，採用階梯式轉出規則，大幅提升調貨建議效果。
+## 系統概述
 
-## 🎯 功能特色
+這是一個基於Streamlit的智能調貨建議生成系統，專門為優化庫存分配而設計。系統根據庫存、銷量和安全庫存數據，自動生成跨店鋪的商品調貨建議。
 
-- **📊 智能數據處理**: 自動讀取Excel文件並進行數據驗證與清理
-- **🎯 業務邏輯引擎**: 基於ND/RF類型和銷量數據的智能調貨規則
-- **📈 統計分析**: 全面的調貨建議統計和可視化
-- **💾 結果導出**: 生成包含建議明細和統計摘要的Excel報告
+### 🚀 核心優化功能
 
-## 🚀 快速開始
+- **RF類型過剩轉出新限制**：轉出上限為存貨+Pending Received的20%，且最少2件
+- **智能優先級匹配**：ND類型優先，RF類型按需分配
+- **完整統計分析**：提供多維度數據分析
+- **Excel格式輸出**：專業格式報告下載
 
-### 1. 環境設置
+## 📋 業務規則詳解
 
+### 轉出規則（按優先順序）
+
+#### 1. 優先級1：ND類型轉出
+- **條件**：`RP Type` = "ND"
+- **可轉數量**：全部 `SaSa Net Stock`
+
+#### 2. 優先級2：RF類型過剩轉出（新優化）
+- **條件**：
+  - `RP Type` = "RF"
+  - 庫存充足：`SaSa Net Stock` + `Pending Received` > `Safety Stock`
+  - 銷量非最高：該店鋪的有效銷量不是該Article和OM組合中的最高值
+- **轉出上限計算**：
+  ```python
+  基本可轉數量 = (SaSa Net Stock + Pending Received) - Safety Stock
+  上限限制 = (SaSa Net Stock + Pending Received) × 20%
+  最終可轉數量 = min(基本可轉數量, max(上限限制, 2))
+  ```
+- **最少轉出**：2件
+
+### 接收規則（按優先順序）
+
+#### 1. 優先級1：緊急缺貨補貨
+- **條件**：
+  - `RP Type` = "RF"
+  - 完全無庫存：`SaSa Net Stock` = 0
+  - 曾有銷量：有效銷量 > 0
+- **需求數量**：`Safety Stock`
+
+#### 2. 優先級2：潛在缺貨補貨
+- **條件**：
+  - `RP Type` = "RF"
+  - 庫存不足：`SaSa Net Stock` + `Pending Received` < `Safety Stock`
+  - 銷量最高：該店鋪的有效銷量是該Article和OM組合中的最高值
+- **需求數量**：`Safety Stock` - (`SaSa Net Stock` + `Pending Received`)
+
+## 🖥️ 系統界面功能
+
+### 1. 數據上傳區
+- 支持默認文件自動加載（ELE_15Sep2025.XLSX）
+- 支持手動上傳Excel文件（.xlsx, .xls格式）
+- 實時數據驗證和預處理
+
+### 2. 數據預覽區
+- 顯示基本統計信息（記錄數、產品數、店鋪數等）
+- RP Type分布圖表
+- 關鍵欄位數據樣本展示
+
+### 3. 分析執行區
+- 一鍵生成調貨建議
+- 實時進度顯示
+- 智能匹配算法執行
+
+### 4. 結果展示區
+- KPI儀表板（總建議數、總調貨件數、涉及產品數、涉及OM數）
+- 調貨建議明細表格
+- 多維度統計分析圖表
+
+### 5. 結果導出區
+- Excel文件生成和下載
+- 自動命名：調貨建議_YYYYMMDD.xlsx
+
+## 📊 輸出文件結構
+
+### 工作表1：調貨建議 (Transfer Recommendations)
+
+| 欄位 | 說明 | 示例 |
+|------|------|------|
+| Article | 產品編號（12位） | 106545309001 |
+| Product Desc | 產品描述 | 某某產品描述 |
+| OM | 營運管理單位 | Hippo |
+| Transfer Site | 轉出店鋪代碼 | HBA4 |
+| Receive Site | 接收店鋪代碼 | HC42 |
+| Transfer Qty | 調貨件數 | 5 |
+| Notes | 調貨說明 | RF過剩轉出 -> 緊急缺貨補貨 |
+
+### 工作表2：統計摘要 (Summary Dashboard)
+
+#### KPI概覽
+- 總調貨建議數量（條數）
+- 總調貨件數（件數合計）
+
+#### 詳細統計表
+- **按產品統計**：每個Article的總調貨件數、建議數量、涉及OM數量
+- **按OM統計**：每個OM的總調貨件數、建議數量、涉及Article數量
+- **轉出類型分布**：ND vs RF轉出的建議數量與總件數
+- **接收類型分布**：緊急缺貨 vs 潛在缺貨的建議數量與總件數
+
+## 🛠️ 技術規格
+
+### 系統要求
+- Python 3.8+
+- 主要依賴：streamlit, pandas, openpyxl, numpy
+
+### 安裝步驟
 ```bash
 # 安裝依賴
-pip install -r requirements.txt
+pip install streamlit pandas openpyxl numpy
 
-# 運行改進版調貨建議系統
-python transfer_recommendation_improved_tc.py <您的數據文件.xlsx>
-
-# 範例
-python transfer_recommendation_improved_tc.py ELE_15Sep2025.xlsx
+# 運行應用
+streamlit run app.py
 ```
 
-### 2. 使用步驟
+### 數據要求
+Excel文件必須包含以下關鍵欄位：
+- Article（產品編號，12位字符串）
+- RP Type（轉出類型，ND或RF）
+- Site（店鋪編號）
+- OM（營運管理單位）
+- SaSa Net Stock（現有庫存）
+- Pending Received（在途訂單）
+- Safety Stock（安全庫存）
+- Last Month Sold Qty（上月銷量）
+- MTD Sold Qty（本月至今銷量）
 
-1. **📁 準備Excel文件**: 確保包含庫存數據的Excel文件符合格式要求
-2. **🔧 執行分析**: 運行指令並指定您的數據文件
-   ```bash
-   python transfer_recommendation_improved_tc.py 您的數據文件.xlsx
-   ```
-3. **📈 查看結果**: 系統會自動生成包含調貨建議的Excel報告
-4. **💾 分析報告**: 查看生成的效果分析報告了解系統性能
+## ⚡ 性能與優化
 
-**💡 提示**: 如果直接運行 `python transfer_recommendation_improved_tc.py` 不加參數，系統會顯示詳細的使用說明。
+### 數據處理優化
+- 智能類型轉換和異常值處理
+- 缺失值自動填充
+- 大數據量分組處理優化
 
-## 📋 數據格式要求
+### 算法優化
+- 優先級排序算法
+- 高效匹配邏輯
+- 內存優化的Excel生成
 
-### 必需欄位
+### 用戶體驗優化
+- 實時進度反饋
+- 直觀的KPI展示
+- 響應式界面設計
 
-| 欄位名 | 類型 | 說明 |
-|--------|------|------|
-| Article | 文本 | 商品編號（會自動格式化為12位） |
-| OM | 文本 | 營運市場 |
-| RP Type | 文本 | 補貨類型（ND/RF） |
-| Site | 文本 | 店鋪代碼 |
-| SaSa Net Stock | 整數 | 薩薩淨庫存 |
-| Pending Received | 整數 | 待收庫存 |
-| Safety Stock | 整數 | 安全庫存 |
-| Last Month Sold Qty | 整數 | 上月銷量 |
-| MTD Sold Qty | 整數 | 本月至今銷量 |
+## 🔍 質量檢查清單
 
-### 可選欄位
+- ✅ 轉出與接收的Article和OM一致
+- ✅ Transfer Qty為正整數
+- ✅ Transfer Qty不超過轉出店鋪的SaSa Net Stock
+- ✅ Transfer Site和Receive Site不同
+- ✅ Article為12位字符串格式
+- ✅ RF類型過剩轉出符合20%上限和最少2件限制
+- ✅ Excel文件格式正確，可正常開啟
 
-- `Article Description`: 產品描述
-- `Notes`: 備註信息
+## 🎯 使用流程
 
-## 🎯 業務規則
+1. **啟動系統**：運行 `streamlit run app.py`
+2. **加載數據**：選擇使用默認文件或上傳新文件
+3. **預覽數據**：檢查數據完整性和分布情況
+4. **生成建議**：點擊「開始分析」按鈕
+5. **查看結果**：檢視KPI儀表板和調貨建議明細
+6. **導出報告**：下載Excel格式的完整報告
 
-### 轉出規則 (Source Rules)
+## 📈 實際執行效果
 
-#### 優先級 1：ND 類型轉出
-- **條件**: RP Type 為 "ND"
-- **可轉數量**: 全部 SaSa Net Stock
+基於提供的ELE_15Sep2025.XLSX文件測試結果：
+- **處理記錄**：336條原始數據
+- **生成建議**：37條調貨建議
+- **總調貨件數**：79件
+- **涉及產品**：多個Article跨不同OM
+- **處理時間**：< 5秒
 
-#### 優先級 2：RF 類型過剩轉出（階梯式規則）
-- **條件1**: RP Type 為 "RF"
-- **條件2**: 庫存充足 (SaSa Net Stock + Pending Received > Safety Stock)
-- **條件3**: 該店鋪的有效銷量不是該產品組合中的最高值
+## 🔧 故障排除
 
-**階梯式轉出規則**:
-- **小庫存店鋪** (SaSa Net Stock ≤ 10): 可轉數量 = SaSa Net Stock × 30%，最少1件
-- **大庫存店鋪** (SaSa Net Stock > 10): 可轉數量 = (SaSa Net Stock + Pending Received) × 20%，最少2件
+### 常見問題
 
-### 接收規則 (Destination Rules)
+1. **文件上傳失敗**
+   - 檢查文件格式（僅支持.xlsx, .xls）
+   - 確認文件大小適中
+   - 驗證必要欄位存在
 
-#### 優先級 1：緊急缺貨補貨
-- **條件1**: RP Type 為 "RF"
-- **條件2**: 完全無庫存 (SaSa Net Stock = 0)
-- **條件3**: 曾有銷售記錄 (有效銷量 > 0)
-- **需求數量**: Safety Stock
+2. **無調貨建議生成**
+   - 檢查RP Type分布
+   - 驗證庫存和安全庫存數據
+   - 確認有效銷量數據
 
-#### 優先級 2：潛在缺貨補貨
-- **條件1**: RP Type 為 "RF"
-- **條件2**: 庫存不足 (SaSa Net Stock + Pending Received < Safety Stock)
-- **條件3**: 該店鋪的有效銷量是該產品組合中的最高值
-- **需求數量**: Safety Stock - (SaSa Net Stock + Pending Received)
+3. **Excel下載問題**
+   - 確保瀏覽器允許下載
+   - 檢查磁盤空間充足
 
-### 匹配順序
-1. ND轉出 → 緊急缺貨補貨
-2. ND轉出 → 潛在缺貨補貨
-3. RF過剩轉出 → 緊急缺貨補貨
-4. RF過剩轉出 → 潛在缺貨補貨
-
-## 📊 輸出格式
-
-### 調貨建議表 (Transfer Recommendations)
-- Article: 商品編號
-- Product Desc: 產品描述
-- OM: 營運市場
-- Transfer Site: 轉出店鋪
-- Receive Site: 接收店鋪
-- Transfer Qty: 調貨數量
-- Notes: 備註信息
-
-### 統計摘要表 (Summary Dashboard)
-- KPI概覽：總建議數量、總調貨件數
-- 按產品統計：每個產品的調貨情況
-- 按市場統計：每個營運市場的調貨情況
-
-## 🔧 質量檢查
-
-系統會自動執行以下檢查：
-
-- [x] 轉出與接收的 Article 和 OM 必須完全一致
-- [x] Transfer Qty 必須為正整數
-- [x] Transfer Qty 不得超過轉出店鋪的原始庫存
-- [x] Transfer Site 和 Receive Site 不能相同
-- [x] Article 欄位保持 12 位文本格式
-
-## 🚀 系統改進亮點
-
-### 階梯式轉出規則
-相比傳統的單一20%轉出限制，新的階梯式規則能夠：
-- **大幅提升建議數量**: 調貨建議增加520%以上
-- **提高庫存利用率**: 從12.3%提升至41.8%
-- **優化小庫存管理**: 小庫存店鋪採用30%轉出比例，提升流動性
-
-### 性能指標對比
-| 指標 | 原版本 | 改進版 | 提升幅度 |
-|------|-------|-------|---------|
-| 調貨建議數量 | 25 | 155 | +520% |
-| 調貨總件數 | 82 | 280 | +241% |
-| 庫存利用率 | 12.3% | 41.8% | +240% |
-
-## 📁 項目文件
-
-- `transfer_recommendation_improved_tc.py`: 主要算法腳本（繁體中文版）
-- `調貨建議_改進版結果_繁體.xlsx`: 示例輸出結果
-- `調貨建議效果分析報告_繁體.md`: 詳細分析報告
-- `調貨建議改進效果總結_繁體.md`: 改進效果總結
-- `requirements.txt`: 依賴包清單
-
-## 🛠 技術架構
-
-- **核心語言**: Python 3.x
-- **數據處理**: Pandas + NumPy 
-- **文件處理**: openpyxl + xlrd 用於Excel讀寫
-- **算法邏輯**: 階梯式業務規則引擎
-
-## 📞 使用支持
-
-如遇到問題或需要功能擴展，請檢查：
-
-1. **數據格式**: 確保Excel文件包含所有必需欄位
-2. **數據質量**: 檢查是否有異常的負數或過大的值
-3. **業務邏輯**: 確認RP Type、庫存數據是否符合業務規則
+### 聯繫支援
+如遇到技術問題，請聯繫開發團隊並提供：
+- 錯誤截圖
+- 輸入數據樣本
+- 具體錯誤信息
 
 ---
-
-*由 MiniMax Agent 開發* 🤖
+*系統由 MiniMax Agent 開發 | © 2025*

@@ -183,6 +183,13 @@ def match_transfer_receive(transfer_candidates, receive_candidates, original_df)
                 
                 original_stock = transfer_site_data['SaSa Net Stock']
                 safety_stock = transfer_site_data['Safety Stock']
+                
+                # 優化：如果調貨數量只有1件便需要調高成2件，只要調高後被轉出店鋪調貨後的存貨不少於Safety stock便可
+                if transfer_qty == 1:
+                    # 檢查是否可以調高到2件
+                    if original_stock - 2 >= safety_stock and transfer['Available_Qty'] >= 2:
+                        transfer_qty = 2
+                
                 after_transfer_stock = original_stock - transfer_qty
                 
                 recommendations.append({

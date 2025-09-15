@@ -86,6 +86,9 @@
 | Transfer Site | 轉出店鋪代碼 | HBA4 |
 | Receive Site | 接收店鋪代碼 | HC42 |
 | Transfer Qty | 調貨件數 | 5 |
+| Original Stock | 轉出店鋪原有數量 | 20 |
+| After Transfer Stock | 轉出後數量 | 15 |
+| Safety Stock | Safety數量 | 4 |
 | Notes | 調貨說明 | RF過剩轉出 -> 緊急缺貨補貨 |
 
 ### 工作表2：統計摘要 (Summary Dashboard)
@@ -152,6 +155,9 @@ Excel文件必須包含以下關鍵欄位：
 - ✅ Transfer Site和Receive Site不同
 - ✅ Article為12位字符串格式
 - ✅ RF類型過剩轉出符合20%上限和最少2件限制
+- ✅ Original Stock = 轉出店鋪的SaSa Net Stock
+- ✅ After Transfer Stock = Original Stock - Transfer Qty
+- ✅ Safety Stock = 轉出店鋪的Safety Stock
 - ✅ Excel文件格式正確，可正常開啟
 
 ## 🎯 使用流程

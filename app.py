@@ -149,7 +149,7 @@ def identify_receive_candidates(group_df):
     
     return receive_candidates
 
-def match_transfer_receive(transfer_candidates, receive_candidates):
+def match_transfer_receive(transfer_candidates, receive_candidates, original_df):
     """匹配轉出和接收候選"""
     recommendations = []
     
@@ -174,6 +174,17 @@ def match_transfer_receive(transfer_candidates, receive_candidates):
             transfer_qty = min(transfer['Available_Qty'], receive['Need_Qty'])
             
             if transfer_qty > 0:
+                # 獲取轉出店鋪的原始庫存信息
+                transfer_site_data = original_df[
+                    (original_df['Article'] == transfer['Article']) & 
+                    (original_df['OM'] == transfer['OM']) & 
+                    (original_df['Site'] == transfer['Site'])
+                ].iloc[0]
+                
+                original_stock = transfer_site_data['SaSa Net Stock']
+                safety_stock = transfer_site_data['Safety Stock']
+                after_transfer_stock = original_stock - transfer_qty
+                
                 recommendations.append({
                     'Article': transfer['Article'],
                     'OM': transfer['OM'],
@@ -182,6 +193,9 @@ def match_transfer_receive(transfer_candidates, receive_candidates):
                     'Transfer_Qty': transfer_qty,
                     'Transfer_Type': transfer['Type'],
                     'Receive_Type': receive['Type'],
+                    'Original_Stock': original_stock,
+                    'After_Transfer_Stock': after_transfer_stock,
+                    'Safety_Stock': safety_stock,
                     'Notes': f"{transfer['Type']} -> {receive['Type']}"
                 })
                 
@@ -204,7 +218,7 @@ def generate_transfer_recommendations(df):
         receive_candidates = identify_receive_candidates(group)
         
         # 匹配並生成建議
-        recommendations = match_transfer_receive(transfer_candidates, receive_candidates)
+        recommendations = match_transfer_receive(transfer_candidates, receive_candidates, df)
         all_recommendations.extend(recommendations)
     
     return pd.DataFrame(all_recommendations)
@@ -278,19 +292,24 @@ def create_excel_output(recommendations_df, summary_stats, original_df):
             
             # 重新排列欄位
             output_columns = ['Article', 'Article Description', 'OM', 'Transfer_Site', 
-                            'Receive_Site', 'Transfer_Qty', 'Notes']
+                            'Receive_Site', 'Transfer_Qty', 'Original_Stock', 
+                            'After_Transfer_Stock', 'Safety_Stock', 'Notes']
             final_df = merged_df[output_columns].rename(columns={
                 'Article Description': 'Product Desc',
                 'Transfer_Site': 'Transfer Site',
                 'Receive_Site': 'Receive Site',
-                'Transfer_Qty': 'Transfer Qty'
+                'Transfer_Qty': 'Transfer Qty',
+                'Original_Stock': 'Original Stock',
+                'After_Transfer_Stock': 'After Transfer Stock',
+                'Safety_Stock': 'Safety Stock'
             })
             
             final_df.to_excel(writer, sheet_name='調貨建議', index=False)
         else:
             # 空結果
             empty_df = pd.DataFrame(columns=['Article', 'Product Desc', 'OM', 'Transfer Site', 
-                                           'Receive Site', 'Transfer Qty', 'Notes'])
+                                           'Receive Site', 'Transfer Qty', 'Original Stock',
+                                           'After Transfer Stock', 'Safety Stock', 'Notes'])
             empty_df.to_excel(writer, sheet_name='調貨建議', index=False)
         
         # 工作表2：統計摘要 - 修復：直接在同一個writer中創建
@@ -453,6 +472,9 @@ def main():
                         'Transfer_Site': '轉出店鋪',
                         'Receive_Site': '接收店鋪',
                         'Transfer_Qty': '調貨數量',
+                        'Original_Stock': '轉出店鋪原有數量',
+                        'After_Transfer_Stock': '轉出後數量',
+                        'Safety_Stock': 'Safety數量',
                         'Transfer_Type': '轉出類型',
                         'Receive_Type': '接收類型',
                         'Notes': '備註'

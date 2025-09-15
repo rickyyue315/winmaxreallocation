@@ -251,28 +251,28 @@ def generate_summary_statistics(recommendations_df, original_df):
         'Transfer_Qty': ['sum', 'count'],
         'OM': 'nunique'
     }).round(2)
-    by_article.columns = ['總調貨件數', '建議數量', '涉及OM數量']
+    by_article.columns = ['總調貨件數', '涉及行數', '涉及OM數量']
     
     # 按OM統計
     by_om = recommendations_df.groupby('OM').agg({
         'Transfer_Qty': ['sum', 'count'],
         'Article': 'nunique'
     }).round(2)
-    by_om.columns = ['總調貨件數', '建議數量', '涉及Article數量']
+    by_om.columns = ['總調貨件數', '涉及行數', '涉及Article數量']
     
     # 轉出類型分布
     transfer_type_dist = recommendations_df.groupby('Transfer_Type').agg({
         'Transfer_Qty': 'sum',
         'Article': 'count'
     })
-    transfer_type_dist.columns = ['總件數', '建議數量']
+    transfer_type_dist.columns = ['總件數', '涉及行數']
     
     # 接收類型分布
     receive_type_dist = recommendations_df.groupby('Receive_Type').agg({
         'Transfer_Qty': 'sum',
         'Article': 'count'
     })
-    receive_type_dist.columns = ['總件數', '建議數量']
+    receive_type_dist.columns = ['總件數', '涉及行數']
     
     return {
         'total_recommendations': total_recommendations,

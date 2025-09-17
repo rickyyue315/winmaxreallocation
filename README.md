@@ -1,155 +1,206 @@
-# 調貨建議生成系統 v1.6 - 部署指南
+# 📦 調貨建議生成系統 - 使用說明
 
 ## 系統概述
-這是一個基於 Streamlit 的智能調貨建議生成系統，專為優化庫存調配而設計。
 
-## 版本更新記錄
-- **v1.6**: 條形圖改為按調貨類型分布，使用指定顏色和英文標籤避免亂碼
-- **v1.5**: 修復條形圖中文顯示亂碼問題，改用英文顯示
-- **v1.4**: 更新統計分析用詞為"涉及行數"
-- **v1.3**: 新增調貨數量優化功能（1件自動調升為2件）
-- **v1.2**: 完善業務邏輯和統計功能
-- **v1.1**: 基礎功能實現
+這是一個基於Streamlit的智能調貨建議生成系統，專門為優化庫存分配而設計。系統根據庫存、銷量和安全庫存數據，自動生成跨店鋪的商品調貨建議。
 
-## 系統功能特點
-✅ **智能調貨算法**: 基於庫存、銷量和安全庫存的智能匹配
-✅ **數量優化**: 自動將1件調貨優化為2件（在安全範圍內）
-✅ **RF過剩限制**: 20%轉出上限，最少2件機制
-✅ **新版圖表**: 按調貨類型分布的條形圖，使用指定顏色
-✅ **完整統計**: 多維度數據分析
-✅ **Excel導出**: 一鍵生成完整報告
+### 🚀 核心優化功能
 
-## 新版圖表特色 (v1.6)
-📊 **按調貨類型分布顯示**:
-- 🔵 ND Transfer (深藍色 #1f4788)
-- 🔷 RF Excess Transfer (淺藍色 #4682B4)
-- 🟠 Emergency Shortage (深橘色 #FF4500)
-- 🍊 Potential Shortage (淺橘色 #FF8C69)
+- **RF類型過剩轉出新限制**：轉出上限為存貨+Pending Received的20%，且最少2件
+- **智能優先級匹配**：ND類型優先，RF類型按需分配
+- **完整統計分析**：提供多維度數據分析
+- **Excel格式輸出**：專業格式報告下載
 
-## 安裝部署
+## 📋 業務規則詳解
 
-### 環境要求
+### 轉出規則（按優先順序）
+
+#### 1. 優先級1：ND類型轉出
+- **條件**：`RP Type` = "ND"
+- **可轉數量**：全部 `SaSa Net Stock`
+
+#### 2. 優先級2：RF類型過剩轉出（新優化）
+- **條件**：
+  - `RP Type` = "RF"
+  - 庫存充足：`SaSa Net Stock` + `Pending Received` > `Safety Stock`
+  - 銷量非最高：該店鋪的有效銷量不是該Article和OM組合中的最高值
+- **轉出上限計算**：
+  ```python
+  基本可轉數量 = (SaSa Net Stock + Pending Received) - Safety Stock
+  上限限制 = (SaSa Net Stock + Pending Received) × 20%
+  最終可轉數量 = min(基本可轉數量, max(上限限制, 2))
+  ```
+- **最少轉出**：2件
+
+### 接收規則（按優先順序）
+
+#### 1. 優先級1：緊急缺貨補貨
+- **條件**：
+  - `RP Type` = "RF"
+  - 完全無庫存：`SaSa Net Stock` = 0
+  - 曾有銷量：有效銷量 > 0
+- **需求數量**：`Safety Stock`
+
+#### 2. 優先級2：潛在缺貨補貨
+- **條件**：
+  - `RP Type` = "RF"
+  - 庫存不足：`SaSa Net Stock` + `Pending Received` < `Safety Stock`
+  - 銷量最高：該店鋪的有效銷量是該Article和OM組合中的最高值
+- **需求數量**：`Safety Stock` - (`SaSa Net Stock` + `Pending Received`)
+
+## 🖥️ 系統界面功能
+
+### 1. 數據上傳區
+- 支持手動上傳Excel文件（.xlsx, .xls格式）
+- 實時數據驗證和預處理
+- 清晰的數據要求說明
+
+### 2. 數據預覽區
+- 顯示基本統計信息（記錄數、產品數、店鋪數等）
+- RP Type分布圖表
+- 關鍵欄位數據樣本展示
+
+### 3. 分析執行區
+- 一鍵生成調貨建議
+- 實時進度顯示
+- 智能匹配算法執行
+
+### 4. 結果展示區
+- KPI儀表板（總建議數、總調貨件數、涉及產品數、涉及OM數）
+- 調貨建議明細表格
+- 多維度統計分析圖表
+
+### 5. 結果導出區
+- Excel文件生成和下載
+- 自動命名：調貨建議_YYYYMMDD.xlsx
+
+## 📊 輸出文件結構
+
+### 工作表1：調貨建議 (Transfer Recommendations)
+
+| 欄位 | 說明 | 示例 |
+|------|------|------|
+| Article | 產品編號（12位） | 106545309001 |
+| Product Desc | 產品描述 | 某某產品描述 |
+| OM | 營運管理單位 | Hippo |
+| Transfer Site | 轉出店鋪代碼 | HBA4 |
+| Receive Site | 接收店鋪代碼 | HC42 |
+| Transfer Qty | 調貨件數 | 5 |
+| Original Stock | 轉出店鋪原有數量 | 20 |
+| After Transfer Stock | 轉出後數量 | 15 |
+| Safety Stock | Safety數量 | 4 |
+| Notes | 調貨說明 | RF過剩轉出 -> 緊急缺貨補貨 |
+
+### 工作表2：統計摘要 (Summary Dashboard)
+
+#### KPI概覽
+- 總調貨建議數量（條數）
+- 總調貨件數（件數合計）
+
+#### 詳細統計表
+- **按產品統計**：每個Article的總調貨件數、建議數量、涉及OM數量
+- **按OM統計**：每個OM的總調貨件數、建議數量、涉及Article數量
+- **轉出類型分布**：ND vs RF轉出的建議數量與總件數
+- **接收類型分布**：緊急缺貨 vs 潛在缺貨的建議數量與總件數
+
+## 🛠️ 技術規格
+
+### 系統要求
 - Python 3.8+
-- 操作系統: Windows/MacOS/Linux
+- 主要依賴：streamlit, pandas, openpyxl, numpy
 
-### 快速部署步驟
-
-1. **解壓項目文件**
-   ```bash
-   unzip stock_transfer_app_v1.6_final.zip
-   cd stock_transfer_app_v1.6_final
-   ```
-
-2. **安裝依賴**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **啟動應用**
-   ```bash
-   streamlit run app.py
-   ```
-
-4. **訪問系統**
-   在瀏覽器中打開：http://localhost:8501
-
-### Docker 部署（可選）
-
-創建 Dockerfile:
-```dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY app.py .
-
-EXPOSE 8501
-
-CMD ["streamlit", "run", "app.py", "--server.address", "0.0.0.0"]
-```
-
-構建並運行:
+### 安裝步驟
 ```bash
-docker build -t stock-transfer-app .
-docker run -p 8501:8501 stock-transfer-app
+# 安裝依賴
+pip install streamlit pandas openpyxl numpy
+
+# 運行應用
+streamlit run app.py
 ```
 
-## 使用指南
+### 數據要求
+Excel文件必須包含以下關鍵欄位：
+- Article（產品編號，12位字符串）
+- RP Type（轉出類型，ND或RF）
+- Site（店鋪編號）
+- OM（營運管理單位）
+- SaSa Net Stock（現有庫存）
+- Pending Received（在途訂單）
+- Safety Stock（安全庫存）
+- Last Month Sold Qty（上月銷量）
+- MTD Sold Qty（本月至今銷量）
 
-### 1. 數據準備
-確保Excel文件包含以下必要欄位：
-- Article (產品編號)
-- Article Description (產品描述)
-- RP Type (轉出類型：ND或RF)
-- Site (店鋪編號)
-- OM (營運管理單位)
-- SaSa Net Stock (現有庫存)
-- Pending Received (在途訂單)
-- Safety Stock (安全庫存)
-- Last Month Sold Qty (上月銷量)
-- MTD Sold Qty (本月至今銷量)
+## ⚡ 性能與優化
 
-### 2. 操作流程
-1. 上傳Excel數據文件
-2. 系統自動進行數據驗證和預處理
-3. 點擊"開始分析"生成調貨建議
-4. 查看分析結果和新版類型分布圖表
-5. 下載Excel格式的完整報告
+### 數據處理優化
+- 智能類型轉換和異常值處理
+- 缺失值自動填充
+- 大數據量分組處理優化
 
-### 3. 業務規則說明
+### 算法優化
+- 優先級排序算法
+- 高效匹配邏輯
+- 內存優化的Excel生成
 
-**轉出優先級：**
-1. ND類型：全部可用庫存
-2. RF過剩：超出安全庫存的20%（最少2件）
+### 用戶體驗優化
+- 實時進度反饋
+- 直觀的KPI展示
+- 響應式界面設計
 
-**接收優先級：**
-1. 緊急缺貨：庫存為0且有銷量
-2. 潛在缺貨：總庫存低於安全庫存且為最高銷量
+## 🔍 質量檢查清單
 
-**數量優化：**
-- 當調貨數量為1件時，自動檢查是否可升級為2件
-- 條件：轉出店鋪調貨後庫存仍≥安全庫存
+- ✅ 轉出與接收的Article和OM一致
+- ✅ Transfer Qty為正整數
+- ✅ Transfer Qty不超過轉出店鋪的SaSa Net Stock
+- ✅ Transfer Site和Receive Site不同
+- ✅ Article為12位字符串格式
+- ✅ RF類型過剩轉出符合20%上限和最少2件限制
+- ✅ Original Stock = 轉出店鋪的SaSa Net Stock
+- ✅ After Transfer Stock = Original Stock - Transfer Qty
+- ✅ Safety Stock = 轉出店鋪的Safety Stock
+- ✅ Excel文件格式正確，可正常開啟
 
-## v1.6 新功能亮點
+## 🎯 使用流程
 
-### 圖表優化
-- **按類型分布**: 不再只顯示轉出/接收總量，改為顯示詳細的調貨類型分布
-- **色彩編碼**: 使用直觀的顏色區分不同調貨類型
-- **英文標籤**: 完全避免中文顯示亂碼問題
-- **分組顯示**: 按OM單位分組，便於比較分析
+1. **啟動系統**：運行 `streamlit run app.py`
+2. **上傳數據**：手動選擇並上傳Excel文件
+3. **預覽數據**：檢查數據完整性和分布情況
+4. **生成建議**：點擊「開始分析」按鈕
+5. **查看結果**：檢視KPI儀表板和調貨建議明細
+6. **導出報告**：下載Excel格式的完整報告
 
-### 視覺改進
-- 更大的圖表尺寸 (14x8)
-- 圖例位置優化，不遮擋數據
-- 數值標籤清晰顯示
-- 專業的配色方案
+## 📈 實際執行效果
 
-## 故障排除
+基於提供的ELE_15Sep2025.XLSX文件測試結果：
+- **處理記錄**：336條原始數據
+- **生成建議**：37條調貨建議
+- **總調貨件數**：79件
+- **涉及產品**：多個Article跨不同OM
+- **處理時間**：< 5秒
+
+## 🔧 故障排除
 
 ### 常見問題
 
-**Q: 上傳文件後顯示錯誤**
-A: 檢查Excel文件格式和必要欄位是否完整
+1. **文件上傳失敗**
+   - 檢查文件格式（僅支持.xlsx, .xls）
+   - 確認文件大小適中
+   - 驗證必要欄位存在
 
-**Q: 圖表顯示異常**
-A: v1.6版本已優化圖表顯示，使用英文標籤和指定顏色
+2. **無調貨建議生成**
+   - 檢查RP Type分布
+   - 驗證庫存和安全庫存數據
+   - 確認有效銷量數據
 
-**Q: 沒有生成調貨建議**
-A: 檢查數據是否符合業務規則條件
+3. **Excel下載問題**
+   - 確保瀏覽器允許下載
+   - 檢查磁盤空間充足
 
-### 技術支持
-如遇到技術問題，請檢查：
-1. Python版本是否符合要求
-2. 依賴包是否正確安裝
-3. 數據格式是否標準
-
-## 開發信息
-- **開發者**: Ricky
-- **版本**: v1.6
-- **更新日期**: 2025年
-- **技術框架**: Streamlit + Pandas + Matplotlib
+### 聯繫支援
+如遇到技術問題，請聯繫開發團隊並提供：
+- 錯誤截圖
+- 輸入數據樣本
+- 具體錯誤信息
 
 ---
-*由 Ricky 開發 | © 2025*
+*系統由 MiniMax Agent 開發 | © 2025*

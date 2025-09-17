@@ -1,16 +1,6 @@
-# 調貨建議生成系統 - 依賴包列表
-# Generated on 2025-09-15
-
-# Core dependencies
-streamlit>=1.49.0
-pandas>=2.3.0
-numpy>=2.2.0
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
 openpyxl>=3.1.0
-
-# Additional dependencies for Excel processing
-xlrd>=2.0.1
-
-# Optional dependencies for enhanced functionality
 matplotlib>=3.7.0
 seaborn>=0.12.0
-plotly>=5.17.0

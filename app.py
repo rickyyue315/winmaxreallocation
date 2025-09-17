@@ -308,7 +308,7 @@ def generate_summary_statistics(recommendations_df, original_df):
 
 def create_om_transfer_chart(recommendations_df):
     """
-    創建按OM統計的轉出/接收數量條形圖
+    創建按OM統計的調貨類型分布條形圖（英文顯示避免亂碼）
     """
     if recommendations_df.empty:
         return None
@@ -316,34 +316,79 @@ def create_om_transfer_chart(recommendations_df):
     # 設置matplotlib
     setup_matplotlib_for_plotting()
     
-    # 按OM分別統計轉出和接收數量
-    transfer_by_om = recommendations_df.groupby(['OM', 'Transfer_Site'])['Transfer_Qty'].sum().groupby('OM').sum()
-    receive_by_om = recommendations_df.groupby(['OM', 'Receive_Site'])['Transfer_Qty'].sum().groupby('OM').sum()
+    # 按OM統計不同調貨類型的數量
+    # 分別統計轉出類型和接收類型
+    transfer_stats = recommendations_df.groupby(['OM', 'Transfer_Type'])['Transfer_Qty'].sum().unstack(fill_value=0)
+    receive_stats = recommendations_df.groupby(['OM', 'Receive_Type'])['Transfer_Qty'].sum().unstack(fill_value=0)
     
-    # 確保所有OM都在兩個數據中
-    all_oms = set(transfer_by_om.index) | set(receive_by_om.index)
-    transfer_by_om = transfer_by_om.reindex(all_oms, fill_value=0)
-    receive_by_om = receive_by_om.reindex(all_oms, fill_value=0)
+    # 獲取所有OM
+    all_oms = set(transfer_stats.index) | set(receive_stats.index)
+    
+    # 重新索引確保所有OM都存在
+    transfer_stats = transfer_stats.reindex(all_oms, fill_value=0)
+    receive_stats = receive_stats.reindex(all_oms, fill_value=0)
+    
+    # 準備數據 - 英文標籤對應
+    type_mapping = {
+        'ND轉出': 'ND Transfer',
+        'RF過剩轉出': 'RF Excess Transfer', 
+        '緊急缺貨補貨': 'Emergency Shortage',
+        '潛在缺貨補貨': 'Potential Shortage'
+    }
+    
+    # 準備顏色配置
+    color_mapping = {
+        'ND Transfer': '#1f4788',        # 深藍色
+        'RF Excess Transfer': '#4682B4', # 淺藍色  
+        'Emergency Shortage': '#FF4500', # 深橘色
+        'Potential Shortage': '#FF8C69'  # 淺橘色
+    }
+    
+    # 合併所有數據
+    all_data = {}
+    
+    # 處理轉出類型數據
+    for om in all_oms:
+        all_data[om] = {}
+        for chinese_type, english_type in type_mapping.items():
+            if chinese_type in transfer_stats.columns and om in transfer_stats.index:
+                all_data[om][english_type] = transfer_stats.loc[om, chinese_type]
+            elif chinese_type in receive_stats.columns and om in receive_stats.index:
+                all_data[om][english_type] = receive_stats.loc[om, chinese_type]
+            else:
+                all_data[om][english_type] = 0
+    
+    # 創建DataFrame用於繪圖
+    chart_data = pd.DataFrame(all_data).T.fillna(0)
+    
+    # 確保所有類型都存在
+    for english_type in type_mapping.values():
+        if english_type not in chart_data.columns:
+            chart_data[english_type] = 0
     
     # 創建圖表
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(14, 8))
     
+    # 設置條形圖參數
     x = np.arange(len(all_oms))
-    width = 0.35
+    width = 0.2
     
-    # 繪製條形圖 - 青藍色用於轉出，青綠色用於接收
-    bars1 = ax.bar(x - width/2, transfer_by_om.values, width, 
-                   label='轉出數量', color='#4682B4', alpha=0.8)  # 青藍色
-    bars2 = ax.bar(x + width/2, receive_by_om.values, width, 
-                   label='接收數量', color='#20B2AA', alpha=0.8)  # 青綠色
+    # 繪製不同類型的條形圖
+    bars = []
+    positions = [-1.5*width, -0.5*width, 0.5*width, 1.5*width]
+    
+    for i, (english_type, color) in enumerate(color_mapping.items()):
+        if english_type in chart_data.columns:
+            bars.append(ax.bar(x + positions[i], chart_data[english_type].values, 
+                             width, label=english_type, color=color, alpha=0.8))
     
     # 設置圖表
-    ax.set_xlabel('OM單位', fontsize=12)
-    ax.set_ylabel('調貨數量', fontsize=12)
-    ax.set_title('各OM轉出vs接收調貨數量統計', fontsize=14, fontweight='bold')
+    ax.set_xlabel('OM Unit', fontsize=12)
+    ax.set_ylabel('Transfer Quantity', fontsize=12)
+    ax.set_title('Transfer Type Distribution by OM', fontsize=14, fontweight='bold')
     ax.set_xticks(x)
     ax.set_xticklabels(list(all_oms), rotation=45 if len(all_oms) > 5 else 0)
-    ax.legend()
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     
     # 在條形圖上添加數值標籤
     def add_value_labels(bars):
@@ -355,10 +400,11 @@ def create_om_transfer_chart(recommendations_df):
                            xytext=(0, 3),  # 3 points vertical offset
                            textcoords="offset points",
                            ha='center', va='bottom',
-                           fontsize=9)
+                           fontsize=8)
     
-    add_value_labels(bars1)
-    add_value_labels(bars2)
+    # 為所有條形添加標籤
+    for bar_group in bars:
+        add_value_labels(bar_group)
     
     # 調整佈局
     plt.tight_layout()
@@ -437,20 +483,21 @@ def create_excel_output(recommendations_df, summary_stats, original_df):
 
 def main():
     st.set_page_config(
-        page_title="調貨建議生成系統",
+        page_title="調貨建議生成系統 v1.6",
         page_icon="📦",
         layout="wide"
     )
     
-    st.title("📦 調貨建議生成系統")
+    st.title("📦 調貨建議生成系統 v1.6")
     st.markdown("---")
     
     # 側邊欄信息
     st.sidebar.header("系統信息")
     st.sidebar.info("""
-    **優化特點：**
+    **v1.6 優化特點：**
     - ✅ RF類型過剩轉出限制（20%上限，最少2件）
     - ✅ 智能優先級匹配
+    - ✅ 調貨類型分布圖表（按類型分類）
     - ✅ 完整統計分析
     - ✅ Excel格式輸出
     """)
@@ -599,7 +646,7 @@ def main():
                             st.dataframe(summary_stats['receive_type_dist'])
                     
                     # 添加條形圖顯示
-                    st.write("**📊 各OM轉出vs接收數量圖表**")
+                    st.write("**📊 Transfer Type Distribution Chart by OM**")
                     try:
                         chart_fig = create_om_transfer_chart(recommendations_df)
                         if chart_fig is not None:

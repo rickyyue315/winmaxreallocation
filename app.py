@@ -3,6 +3,29 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import io
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+
+def setup_matplotlib_for_plotting():
+    """
+    Setup matplotlib and seaborn for plotting with proper configuration.
+    Call this function before creating any plots to ensure proper rendering.
+    """
+    # Ensure warnings are printed
+    warnings.filterwarnings('default')  # Show all warnings
+
+    # Configure matplotlib for non-interactive mode
+    plt.switch_backend("Agg")
+
+    # Set chart style
+    plt.style.use("seaborn-v0_8")
+    sns.set_palette("husl")
+
+    # Configure platform-appropriate fonts for cross-platform compatibility
+    # Must be set after style.use, otherwise will be overridden by style configuration
+    plt.rcParams["font.sans-serif"] = ["Noto Sans CJK SC", "WenQuanYi Zen Hei", "PingFang SC", "Arial Unicode MS", "Hiragino Sans GB"]
+    plt.rcParams["axes.unicode_minus"] = False
 
 def load_and_preprocess_data(uploaded_file):
     """加載並預處理數據"""
@@ -283,6 +306,65 @@ def generate_summary_statistics(recommendations_df, original_df):
         'receive_type_dist': receive_type_dist
     }
 
+def create_om_transfer_chart(recommendations_df):
+    """
+    創建按OM統計的轉出/接收數量條形圖
+    """
+    if recommendations_df.empty:
+        return None
+    
+    # 設置matplotlib
+    setup_matplotlib_for_plotting()
+    
+    # 按OM分別統計轉出和接收數量
+    transfer_by_om = recommendations_df.groupby(['OM', 'Transfer_Site'])['Transfer_Qty'].sum().groupby('OM').sum()
+    receive_by_om = recommendations_df.groupby(['OM', 'Receive_Site'])['Transfer_Qty'].sum().groupby('OM').sum()
+    
+    # 確保所有OM都在兩個數據中
+    all_oms = set(transfer_by_om.index) | set(receive_by_om.index)
+    transfer_by_om = transfer_by_om.reindex(all_oms, fill_value=0)
+    receive_by_om = receive_by_om.reindex(all_oms, fill_value=0)
+    
+    # 創建圖表
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    x = np.arange(len(all_oms))
+    width = 0.35
+    
+    # 繪製條形圖 - 青藍色用於轉出，青綠色用於接收
+    bars1 = ax.bar(x - width/2, transfer_by_om.values, width, 
+                   label='轉出數量', color='#4682B4', alpha=0.8)  # 青藍色
+    bars2 = ax.bar(x + width/2, receive_by_om.values, width, 
+                   label='接收數量', color='#20B2AA', alpha=0.8)  # 青綠色
+    
+    # 設置圖表
+    ax.set_xlabel('OM單位', fontsize=12)
+    ax.set_ylabel('調貨數量', fontsize=12)
+    ax.set_title('各OM轉出vs接收調貨數量統計', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(list(all_oms), rotation=45 if len(all_oms) > 5 else 0)
+    ax.legend()
+    
+    # 在條形圖上添加數值標籤
+    def add_value_labels(bars):
+        for bar in bars:
+            height = bar.get_height()
+            if height > 0:
+                ax.annotate(f'{int(height)}',
+                           xy=(bar.get_x() + bar.get_width() / 2, height),
+                           xytext=(0, 3),  # 3 points vertical offset
+                           textcoords="offset points",
+                           ha='center', va='bottom',
+                           fontsize=9)
+    
+    add_value_labels(bars1)
+    add_value_labels(bars2)
+    
+    # 調整佈局
+    plt.tight_layout()
+    
+    return fig
+
 def create_excel_output(recommendations_df, summary_stats, original_df):
     """創建Excel輸出"""
     output = io.BytesIO()
@@ -515,6 +597,18 @@ def main():
                         st.write("**接收類型分布**")
                         if not summary_stats['receive_type_dist'].empty:
                             st.dataframe(summary_stats['receive_type_dist'])
+                    
+                    # 添加條形圖顯示
+                    st.write("**📊 各OM轉出vs接收數量圖表**")
+                    try:
+                        chart_fig = create_om_transfer_chart(recommendations_df)
+                        if chart_fig is not None:
+                            st.pyplot(chart_fig)
+                            plt.close(chart_fig)  # 釋放記憶體
+                        else:
+                            st.info("沒有數據可用於生成圖表")
+                    except Exception as e:
+                        st.warning(f"圖表生成遇到問題：{str(e)}")
                 
                 # 生成Excel文件
                 st.header("💾 導出結果")
@@ -537,7 +631,7 @@ def main():
     
     # 底部信息
     st.markdown("---")
-    st.markdown("*由 MiniMax Agent 開發 | © 2025*")
+    st.markdown("*由 Ricky 開發 | © 2025*")
 
 if __name__ == "__main__":
     main()

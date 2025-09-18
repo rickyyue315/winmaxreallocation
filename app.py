@@ -20,7 +20,7 @@ warnings.filterwarnings('ignore')
 
 # 設置頁面配置
 st.set_page_config(
-    page_title="📦 調貨建議生成系統",
+    page_title="調貨建議生成系統",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -65,6 +65,34 @@ class TransferRecommendationSystem:
         self.statistics = None
         self.mode = "A"  # A: 保守轉貨, B: 加強轉貨
         
+    def calculate_preliminary_statistics(self):
+        """計算預先統計數據（預計需求、轉出、接收數量）"""
+        if self.df is None:
+            return {}
+        
+        # 計算A模式和B模式的預計數量
+        stats_a = self._calculate_mode_statistics("A")
+        stats_b = self._calculate_mode_statistics("B")
+        
+        return {
+            'conservative': stats_a,
+            'enhanced': stats_b
+        }
+    
+    def _calculate_mode_statistics(self, mode):
+        """計算指定模式的統計數據"""
+        transfer_candidates = self.identify_transfer_candidates(mode)
+        receive_candidates = self.identify_receive_candidates()
+        
+        total_transfer = sum(candidate['Transfer_Qty'] for candidate in transfer_candidates)
+        total_receive = sum(candidate['Need_Qty'] for candidate in receive_candidates)
+        
+        return {
+            'estimated_transfer': total_transfer,
+            'estimated_receive': total_receive,
+            'estimated_demand': total_receive  # 需求等於接收
+        }
+    
     def load_and_preprocess_data(self, uploaded_file):
         """載入和預處理數據"""
         try:
@@ -120,6 +148,10 @@ class TransferRecommendationSystem:
                 df.loc[invalid_rp_mask, 'RP Type'] = 'RF'  # 預設為RF
             
             self.df = df
+            
+            # 計算預先統計
+            self.preliminary_stats = self.calculate_preliminary_statistics()
+            
             return True, f"成功載入 {len(df)} 筆記錄"
             
         except Exception as e:
@@ -407,8 +439,20 @@ class TransferRecommendationSystem:
         om_transfer_stats = df_suggestions.groupby(['OM', 'Transfer_Type'])['Transfer_Qty'].sum().unstack(fill_value=0)
         om_receive_stats = df_suggestions.groupby(['OM', 'Receive_Type'])['Transfer_Qty'].sum().unstack(fill_value=0)
         
-        # 合併統計數據
+        # 合併統計數據並重命名為英文
         om_stats = pd.concat([om_transfer_stats, om_receive_stats], axis=1, sort=False).fillna(0)
+        
+        # 重命名列為英文
+        column_mapping = {
+            'ND轉出': 'ND Transfer',
+            'RF過剩轉出': 'RF Excess Transfer', 
+            'RF加強轉出': 'RF Enhanced Transfer',
+            '緊急缺貨補貨': 'Emergency Restock',
+            '潛在缺貨補貨': 'Potential Restock'
+        }
+        
+        # 重命名存在的列
+        om_stats.columns = [column_mapping.get(col, col) for col in om_stats.columns]
         
         # 創建圖表
         fig, ax = plt.subplots(figsize=(14, 8))
@@ -418,7 +462,7 @@ class TransferRecommendationSystem:
         width = 0.2
         
         # 定義顏色
-        colors = ['#ff9999', '#66b3ff', '#99ff99', '#ffcc99']
+        colors = ['#ff9999', '#66b3ff', '#99ff99', '#ffcc99', '#ffb3e6']
         
         # 繪製條形圖
         bars = []
@@ -434,7 +478,7 @@ class TransferRecommendationSystem:
                 positions.append(bar_position)
                 bar_position += 1
         
-        # 設置圖表
+        # 設置圖表 - 全英文標籤
         ax.set_xlabel('OM Units', fontsize=12)
         ax.set_ylabel('Transfer Quantity', fontsize=12)
         
@@ -445,7 +489,7 @@ class TransferRecommendationSystem:
         
         ax.set_xticks(x + width * (len(positions) - 1) / 2)
         ax.set_xticklabels(om_stats.index, rotation=45, ha='right')
-        ax.legend()
+        ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
         ax.grid(axis='y', alpha=0.3)
         
         # 添加數值標籤
@@ -628,6 +672,34 @@ def main():
                 st.metric("店鋪數量", system.df['Site'].nunique())
             with col4:
                 st.metric("OM數量", system.df['OM'].nunique())
+            
+            # 預計統計資訊
+            if hasattr(system, 'preliminary_stats') and system.preliminary_stats:
+                st.subheader("📊 預計統計資訊")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**A模式 (保守轉貨):**")
+                    conservative = system.preliminary_stats['conservative']
+                    subcol1, subcol2, subcol3 = st.columns(3)
+                    with subcol1:
+                        st.metric("預計轉出", conservative['estimated_transfer'])
+                    with subcol2:
+                        st.metric("預計接收", conservative['estimated_receive'])
+                    with subcol3:
+                        st.metric("預計需求", conservative['estimated_demand'])
+                
+                with col2:
+                    st.markdown("**B模式 (加強轉貨):**")
+                    enhanced = system.preliminary_stats['enhanced']
+                    subcol1, subcol2, subcol3 = st.columns(3)
+                    with subcol1:
+                        st.metric("預計轉出", enhanced['estimated_transfer'])
+                    with subcol2:
+                        st.metric("預計接收", enhanced['estimated_receive'])
+                    with subcol3:
+                        st.metric("預計需求", enhanced['estimated_demand'])
             
             # 顯示資料樣本
             with st.expander("查看資料樣本", expanded=False):

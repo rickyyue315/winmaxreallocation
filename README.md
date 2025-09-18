@@ -1,155 +1,80 @@
-# 調貨建議生成系統 v1.6 - 部署指南
+# 📦 調貨建議生成系統 v1.7a
 
 ## 系統概述
-這是一個基於 Streamlit 的智能調貨建議生成系統，專為優化庫存調配而設計。
 
-## 版本更新記錄
-- **v1.6**: 條形圖改為按調貨類型分布，使用指定顏色和英文標籤避免亂碼
-- **v1.5**: 修復條形圖中文顯示亂碼問題，改用英文顯示
-- **v1.4**: 更新統計分析用詞為"涉及行數"
-- **v1.3**: 新增調貨數量優化功能（1件自動調升為2件）
-- **v1.2**: 完善業務邏輯和統計功能
-- **v1.1**: 基礎功能實現
+零售庫存調貨建議生成系統，基於Streamlit開發，提供智慧化的庫存調貨分析和建議。
 
-## 系統功能特點
-✅ **智能調貨算法**: 基於庫存、銷量和安全庫存的智能匹配
-✅ **數量優化**: 自動將1件調貨優化為2件（在安全範圍內）
-✅ **RF過剩限制**: 20%轉出上限，最少2件機制
-✅ **新版圖表**: 按調貨類型分布的條形圖，使用指定顏色
-✅ **完整統計**: 多維度數據分析
-✅ **Excel導出**: 一鍵生成完整報告
+## 主要功能
 
-## 新版圖表特色 (v1.6)
-📊 **按調貨類型分布顯示**:
-- 🔵 ND Transfer (深藍色 #1f4788)
-- 🔷 RF Excess Transfer (淺藍色 #4682B4)
-- 🟠 Emergency Shortage (深橘色 #FF4500)
-- 🍊 Potential Shortage (淺橘色 #FF8C69)
+- ✅ ND/RF類型智慧識別
+- ✅ 優先順序調貨匹配  
+- ✅ RF過剩/加強轉出限制
+- ✅ 統計分析和圖表
+- ✅ Excel格式匯出
 
-## 安裝部署
+## 技術棧
 
-### 環境要求
-- Python 3.8+
-- 操作系統: Windows/MacOS/Linux
+- **前端：** Streamlit (>=1.28.0)
+- **資料處理：** pandas (>=2.0.0), numpy (>=1.24.0)
+- **Excel處理：** openpyxl (>=3.1.0)
+- **視覺化：** matplotlib (>=3.7.0), seaborn (>=0.12.0)
 
-### 快速部署步驟
+## 安裝與運行
 
-1. **解壓項目文件**
-   ```bash
-   unzip stock_transfer_app_v1.6_final.zip
-   cd stock_transfer_app_v1.6_final
-   ```
-
-2. **安裝依賴**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **啟動應用**
-   ```bash
-   streamlit run app.py
-   ```
-
-4. **訪問系統**
-   在瀏覽器中打開：http://localhost:8501
-
-### Docker 部署（可選）
-
-創建 Dockerfile:
-```dockerfile
-FROM python:3.9-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY app.py .
-
-EXPOSE 8501
-
-CMD ["streamlit", "run", "app.py", "--server.address", "0.0.0.0"]
-```
-
-構建並運行:
+1. 安裝依賴包：
 ```bash
-docker build -t stock-transfer-app .
-docker run -p 8501:8501 stock-transfer-app
+pip install -r requirements.txt
 ```
 
-## 使用指南
+2. 運行應用：
+```bash
+streamlit run app.py
+```
 
-### 1. 數據準備
-確保Excel文件包含以下必要欄位：
-- Article (產品編號)
-- Article Description (產品描述)
-- RP Type (轉出類型：ND或RF)
-- Site (店鋪編號)
-- OM (營運管理單位)
-- SaSa Net Stock (現有庫存)
-- Pending Received (在途訂單)
-- Safety Stock (安全庫存)
-- Last Month Sold Qty (上月銷量)
-- MTD Sold Qty (本月至今銷量)
+或使用快捷腳本：
+```bash
+# Windows
+run.bat
 
-### 2. 操作流程
-1. 上傳Excel數據文件
-2. 系統自動進行數據驗證和預處理
-3. 點擊"開始分析"生成調貨建議
-4. 查看分析結果和新版類型分布圖表
-5. 下載Excel格式的完整報告
+# Linux/macOS
+./run.sh
+```
 
-### 3. 業務規則說明
+## 輸入數據格式
 
-**轉出優先級：**
-1. ND類型：全部可用庫存
-2. RF過剩：超出安全庫存的20%（最少2件）
+系統需要Excel文件包含以下必需欄位：
 
-**接收優先級：**
-1. 緊急缺貨：庫存為0且有銷量
-2. 潛在缺貨：總庫存低於安全庫存且為最高銷量
+- Article (str) - 產品編號
+- Article Description (str) - 產品描述
+- RP Type (str) - 補貨類型：ND（不補貨）或 RF（補貨）
+- Site (str) - 店鋪編號
+- OM (str) - 營運管理單位
+- MOQ (int) - 最低派貨數量
+- SaSa Net Stock (int) - 現有庫存數量
+- Pending Received (int) - 在途訂單數量
+- Safety Stock (int) - 安全庫存數量
+- Last Month Sold Qty (int) - 上月銷量
+- MTD Sold Qty (int) - 本月至今銷量
 
-**數量優化：**
-- 當調貨數量為1件時，自動檢查是否可升級為2件
-- 條件：轉出店鋪調貨後庫存仍≥安全庫存
+## 核心業務邏輯
 
-## v1.6 新功能亮點
+### A模式：保守轉貨
+- RF類型：(庫存+在途) × 20%限制，最少2件
+- 優先轉出低銷量店鋪的過剩庫存
 
-### 圖表優化
-- **按類型分布**: 不再只顯示轉出/接收總量，改為顯示詳細的調貨類型分布
-- **色彩編碼**: 使用直觀的顏色區分不同調貨類型
-- **英文標籤**: 完全避免中文顯示亂碼問題
-- **分組顯示**: 按OM單位分組，便於比較分析
+### B模式：加強轉貨
+- RF類型：(庫存+在途) × 50%限制，最少2件
+- 基於MOQ+1件的安全邊際
+- 優先轉出銷量最低的店鋪
 
-### 視覺改進
-- 更大的圖表尺寸 (14x8)
-- 圖例位置優化，不遮擋數據
-- 數值標籤清晰顯示
-- 專業的配色方案
+## 版本歷史
 
-## 故障排除
+詳見 [VERSION.md](VERSION.md)
 
-### 常見問題
+## 開發者
 
-**Q: 上傳文件後顯示錯誤**
-A: 檢查Excel文件格式和必要欄位是否完整
-
-**Q: 圖表顯示異常**
-A: v1.6版本已優化圖表顯示，使用英文標籤和指定顏色
-
-**Q: 沒有生成調貨建議**
-A: 檢查數據是否符合業務規則條件
-
-### 技術支持
-如遇到技術問題，請檢查：
-1. Python版本是否符合要求
-2. 依賴包是否正確安裝
-3. 數據格式是否標準
-
-## 開發信息
-- **開發者**: Ricky
-- **版本**: v1.6
-- **更新日期**: 2025年
-- **技術框架**: Streamlit + Pandas + Matplotlib
+**Ricky** - 系統架構與開發
 
 ---
-*由 Ricky 開發 | © 2025*
+
+*最後更新：2025-09-18*

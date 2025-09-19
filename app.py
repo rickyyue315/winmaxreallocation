@@ -341,7 +341,7 @@ class TransferRecommendationSystem:
                             break
     
     def _match_rf_transfers_optimized(self, available_transfers, available_receives, suggestions):
-        """處理RF轉出 - 優化同店舖轉出"""
+        """處理RF轉出 - 優化存貨優先、同店舖轉出、避免單件"""
         # 將RF轉出按店舖分組
         rf_transfers_by_site = {}
         for i, transfer in enumerate(available_transfers):
@@ -351,26 +351,53 @@ class TransferRecommendationSystem:
                     rf_transfers_by_site[site] = []
                 rf_transfers_by_site[site].append((i, transfer))
         
-        # 計算每個店舖可轉出的總品項數，優先安排品項多的店舖
+        # 計算每個店舖的綜合優先級
         site_priority = []
         for site, transfers in rf_transfers_by_site.items():
-            active_items = len([t for i, t in transfers if t['Transfer_Qty'] > 0])
-            total_qty = sum(t['Transfer_Qty'] for i, t in transfers if t['Transfer_Qty'] > 0)
-            site_priority.append((site, active_items, total_qty))
+            # 統計活躍轉出項目
+            active_transfers = [t for i, t in transfers if t['Transfer_Qty'] > 0]
+            
+            if not active_transfers:
+                continue
+                
+            # 計算優先級指標
+            active_items = len(active_transfers)  # 可轉出品項數
+            total_stock = sum(t['Original_Stock'] for t in active_transfers)  # 總存貨
+            total_qty = sum(t['Transfer_Qty'] for t in active_transfers)  # 總可轉出數量
+            multi_piece_items = len([t for t in active_transfers if t['Transfer_Qty'] >= 2])  # 可2件以上轉出的品項數
+            
+            # 綜合優先級：(可2件品項數, 總存貨, 品項數, 總轉出數量)
+            priority = (multi_piece_items, total_stock, active_items, total_qty)
+            site_priority.append((site, priority, transfers))
         
-        # 按品項數量排序（品項多的店舖優先），品項數相同則按總數量排序
-        site_priority.sort(key=lambda x: (-x[1], -x[2]))
+        # 按綜合優先級排序
+        # 1. 可2件以上轉出品項數多的優先
+        # 2. 總存貨多的優先  
+        # 3. 品項數多的優先
+        # 4. 總轉出數量多的優先
+        site_priority.sort(key=lambda x: x[1], reverse=True)
         
         # 按優先順序處理每個店舖的轉出
-        for site, _, _ in site_priority:
-            transfers = rf_transfers_by_site[site]
+        for site, priority_metrics, transfers in site_priority:
+            # 在店舖內按存貨量排序轉出項目
+            transfers_sorted = []
+            for i, transfer in transfers:
+                if transfer['Transfer_Qty'] > 0:
+                    # 優先級：(可轉出數量>=2, 原始存貨, 轉出數量)
+                    can_multi = 1 if transfer['Transfer_Qty'] >= 2 else 0
+                    item_priority = (can_multi, transfer['Original_Stock'], transfer['Transfer_Qty'])
+                    transfers_sorted.append((item_priority, i, transfer))
+            
+            # 按項目優先級排序
+            transfers_sorted.sort(key=lambda x: x[0], reverse=True)
             
             # 處理該店舖的所有轉出需求
             for receive in available_receives[:]:
                 if receive['Need_Qty'] <= 0:
                     continue
                     
-                for i, transfer in transfers:
+                # 按優先級順序查找匹配的轉出項目
+                for item_priority, i, transfer in transfers_sorted:
                     if (transfer['Article'] == receive['Article'] and 
                         transfer['OM'] == receive['OM'] and 
                         transfer['Site'] != receive['Site'] and
@@ -378,11 +405,17 @@ class TransferRecommendationSystem:
                         
                         actual_qty = min(transfer['Transfer_Qty'], receive['Need_Qty'])
                         
-                        # 調貨數量優化：如果只有1件，嘗試調高到2件
-                        if actual_qty == 1 and transfer['Transfer_Qty'] >= 2:
-                            after_transfer_stock = transfer['Original_Stock'] - 2
-                            if after_transfer_stock >= transfer['Safety_Stock']:
-                                actual_qty = 2
+                        # 智能數量優化
+                        if actual_qty == 1:
+                            # 如果只有1件且該轉出項目有足夠庫存，嘗試調高到2件
+                            if transfer['Transfer_Qty'] >= 2:
+                                after_transfer_stock = transfer['Original_Stock'] - 2
+                                if after_transfer_stock >= transfer['Safety_Stock']:
+                                    actual_qty = 2
+                            else:
+                                # 如果真的只能轉1件，檢查是否有其他店舖可以轉2件以上
+                                if self._has_better_multi_piece_option(receive, rf_transfers_by_site, site):
+                                    continue  # 跳過此次1件轉出，等待更好的選項
                         
                         if actual_qty > 0:
                             suggestions.append(self._create_suggestion(transfer, receive, actual_qty))
@@ -392,6 +425,20 @@ class TransferRecommendationSystem:
                             
                             if receive['Need_Qty'] <= 0:
                                 break
+                                
+    def _has_better_multi_piece_option(self, receive, rf_transfers_by_site, current_site):
+        """檢查是否有其他店舖能提供2件以上的轉出選項"""
+        for site, transfers in rf_transfers_by_site.items():
+            if site == current_site:
+                continue
+                
+            for i, transfer in transfers:
+                if (transfer['Article'] == receive['Article'] and 
+                    transfer['OM'] == receive['OM'] and 
+                    transfer['Site'] != receive['Site'] and
+                    transfer['Transfer_Qty'] >= 2):
+                    return True
+        return False
     
     def _create_suggestion(self, transfer, receive, actual_qty):
         """創建調貨建議記錄"""

@@ -302,55 +302,113 @@ class TransferRecommendationSystem:
         return candidates
     
     def match_transfer_suggestions(self, transfer_candidates, receive_candidates):
-        """匹配調貨建議"""
+        """匹配調貨建議 - 優化同店舖RF轉出"""
         suggestions = []
         
         # 創建可變的候選列表副本
         available_transfers = transfer_candidates.copy()
         available_receives = receive_candidates.copy()
         
-        # 按優先順序匹配
-        for receive in available_receives:
+        # 先處理ND轉出（優先級最高）
+        self._match_nd_transfers(available_transfers, available_receives, suggestions)
+        
+        # 再處理RF轉出，優化同店舖轉出
+        self._match_rf_transfers_optimized(available_transfers, available_receives, suggestions)
+        
+        return suggestions
+    
+    def _match_nd_transfers(self, available_transfers, available_receives, suggestions):
+        """處理ND轉出（最高優先級）"""
+        for receive in available_receives[:]:
+            if receive['Need_Qty'] <= 0:
+                continue
+                
             for i, transfer in enumerate(available_transfers):
-                if (transfer['Article'] == receive['Article'] and 
+                if (transfer['Type'] == 'ND轉出' and
+                    transfer['Article'] == receive['Article'] and 
                     transfer['OM'] == receive['OM'] and 
                     transfer['Site'] != receive['Site'] and
                     transfer['Transfer_Qty'] > 0):
                     
-                    # 計算實際調貨數量
                     actual_qty = min(transfer['Transfer_Qty'], receive['Need_Qty'])
                     
-                    # 調貨數量優化：如果只有1件，嘗試調高到2件
-                    if actual_qty == 1 and transfer['Transfer_Qty'] >= 2:
-                        # 檢查是否影響轉出店鋪安全庫存
-                        after_transfer_stock = transfer['Original_Stock'] - 2
-                        if after_transfer_stock >= transfer['Safety_Stock']:
-                            actual_qty = 2
-                    
                     if actual_qty > 0:
-                        suggestions.append({
-                            'Article': transfer['Article'],
-                            'OM': transfer['OM'],
-                            'Transfer_Site': transfer['Site'],
-                            'Receive_Site': receive['Site'],
-                            'Transfer_Qty': actual_qty,
-                            'Transfer_Type': transfer['Type'],
-                            'Receive_Type': receive['Type'],
-                            'Original_Stock': transfer['Original_Stock'],
-                            'After_Transfer_Stock': transfer['Original_Stock'] - actual_qty,
-                            'Safety_Stock': transfer['Safety_Stock'],
-                            'MOQ': transfer['MOQ'],
-                            'Notes': f"{transfer['Type']} -> {receive['Type']}"
-                        })
-                        
-                        # 更新候選數量
+                        suggestions.append(self._create_suggestion(transfer, receive, actual_qty))
                         available_transfers[i]['Transfer_Qty'] -= actual_qty
                         receive['Need_Qty'] -= actual_qty
                         
                         if receive['Need_Qty'] <= 0:
                             break
+    
+    def _match_rf_transfers_optimized(self, available_transfers, available_receives, suggestions):
+        """處理RF轉出 - 優化同店舖轉出"""
+        # 將RF轉出按店舖分組
+        rf_transfers_by_site = {}
+        for i, transfer in enumerate(available_transfers):
+            if transfer['Type'] in ['RF過剩轉出', 'RF加強轉出'] and transfer['Transfer_Qty'] > 0:
+                site = transfer['Site']
+                if site not in rf_transfers_by_site:
+                    rf_transfers_by_site[site] = []
+                rf_transfers_by_site[site].append((i, transfer))
+        
+        # 計算每個店舖可轉出的總品項數，優先安排品項多的店舖
+        site_priority = []
+        for site, transfers in rf_transfers_by_site.items():
+            active_items = len([t for i, t in transfers if t['Transfer_Qty'] > 0])
+            total_qty = sum(t['Transfer_Qty'] for i, t in transfers if t['Transfer_Qty'] > 0)
+            site_priority.append((site, active_items, total_qty))
+        
+        # 按品項數量排序（品項多的店舖優先），品項數相同則按總數量排序
+        site_priority.sort(key=lambda x: (-x[1], -x[2]))
+        
+        # 按優先順序處理每個店舖的轉出
+        for site, _, _ in site_priority:
+            transfers = rf_transfers_by_site[site]
+            
+            # 處理該店舖的所有轉出需求
+            for receive in available_receives[:]:
+                if receive['Need_Qty'] <= 0:
+                    continue
+                    
+                for i, transfer in transfers:
+                    if (transfer['Article'] == receive['Article'] and 
+                        transfer['OM'] == receive['OM'] and 
+                        transfer['Site'] != receive['Site'] and
+                        transfer['Transfer_Qty'] > 0):
                         
-        return suggestions
+                        actual_qty = min(transfer['Transfer_Qty'], receive['Need_Qty'])
+                        
+                        # 調貨數量優化：如果只有1件，嘗試調高到2件
+                        if actual_qty == 1 and transfer['Transfer_Qty'] >= 2:
+                            after_transfer_stock = transfer['Original_Stock'] - 2
+                            if after_transfer_stock >= transfer['Safety_Stock']:
+                                actual_qty = 2
+                        
+                        if actual_qty > 0:
+                            suggestions.append(self._create_suggestion(transfer, receive, actual_qty))
+                            available_transfers[i]['Transfer_Qty'] -= actual_qty
+                            transfer['Transfer_Qty'] -= actual_qty  # 同步更新本地副本
+                            receive['Need_Qty'] -= actual_qty
+                            
+                            if receive['Need_Qty'] <= 0:
+                                break
+    
+    def _create_suggestion(self, transfer, receive, actual_qty):
+        """創建調貨建議記錄"""
+        return {
+            'Article': transfer['Article'],
+            'OM': transfer['OM'],
+            'Transfer_Site': transfer['Site'],
+            'Receive_Site': receive['Site'],
+            'Transfer_Qty': actual_qty,
+            'Transfer_Type': transfer['Type'],
+            'Receive_Type': receive['Type'],
+            'Original_Stock': transfer['Original_Stock'],
+            'After_Transfer_Stock': transfer['Original_Stock'] - actual_qty,
+            'Safety_Stock': transfer['Safety_Stock'],
+            'MOQ': transfer['MOQ'],
+            'Notes': f"{transfer['Type']} -> {receive['Type']}"
+        }
     
     def calculate_statistics(self, suggestions):
         """計算統計分析"""

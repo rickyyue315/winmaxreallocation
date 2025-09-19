@@ -183,6 +183,9 @@ class TransferRecommendationSystem:
             
             # ND類型完全轉出 (優先順序1)
             if rp_type == 'ND' and current_stock > 0:
+                # ND類型完全轉出，剩餘庫存為0
+                remaining_stock = 0
+                
                 candidates.append({
                     'Article': article,
                     'Site': row['Site'],
@@ -194,7 +197,8 @@ class TransferRecommendationSystem:
                     'Safety_Stock': safety_stock,
                     'MOQ': moq,
                     'Effective_Sales': effective_sales,
-                    'Total_Available': current_stock + pending
+                    'Total_Available': current_stock + pending,
+                    'Remaining_Stock': remaining_stock  # 添加剩餘庫存信息
                 })
             
             # RF類型轉出 (優先順序2)
@@ -209,6 +213,9 @@ class TransferRecommendationSystem:
                         actual_transfer = min(actual_transfer, current_stock)
                         
                         if actual_transfer > 0:
+                            # 計算轉出後剩餘庫存
+                            remaining_stock = current_stock - actual_transfer
+                            
                             candidates.append({
                                 'Article': article,
                                 'Site': row['Site'],
@@ -220,7 +227,8 @@ class TransferRecommendationSystem:
                                 'Safety_Stock': safety_stock,
                                 'MOQ': moq,
                                 'Effective_Sales': effective_sales,
-                                'Total_Available': total_available
+                                'Total_Available': total_available,
+                                'Remaining_Stock': remaining_stock  # 添加剩餘庫存信息
                             })
                             
                 elif mode == "B":  # 加強轉貨
@@ -232,18 +240,28 @@ class TransferRecommendationSystem:
                         actual_transfer = min(actual_transfer, current_stock)
                         
                         if actual_transfer > 0:
+                            # 計算轉出後剩餘庫存
+                            remaining_stock = current_stock - actual_transfer
+                            
+                            # 根據剩餘庫存與Safety stock關係確定轉出類型
+                            if remaining_stock >= safety_stock:
+                                transfer_type = 'RF過剩轉出'  # 剩餘庫存不會低於Safety stock
+                            else:
+                                transfer_type = 'RF加強轉出'  # 剩餘庫存會低於Safety stock
+                            
                             candidates.append({
                                 'Article': article,
                                 'Site': row['Site'],
                                 'OM': row['OM'],
                                 'Transfer_Qty': actual_transfer,
-                                'Type': 'RF加強轉出',
+                                'Type': transfer_type,
                                 'Priority': 2,
                                 'Original_Stock': current_stock,
                                 'Safety_Stock': safety_stock,
                                 'MOQ': moq,
                                 'Effective_Sales': effective_sales,
-                                'Total_Available': total_available
+                                'Total_Available': total_available,
+                                'Remaining_Stock': remaining_stock  # 添加剩餘庫存信息
                             })
         
         # 按有效銷量排序（低銷量優先轉出）

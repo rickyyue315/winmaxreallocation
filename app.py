@@ -1,9 +1,10 @@
 """
-📦 調貨建議生成系統 v1.7a
+📦 調貨建議生成系統 v1.71
 零售庫存調貨建議生成系統
 
-開發者: Ricky
+開發者: MiniMax Agent
 創建日期: 2025-09-18
+更新日期: 2025-09-30
 """
 
 import streamlit as st
@@ -96,8 +97,32 @@ class TransferRecommendationSystem:
     def load_and_preprocess_data(self, uploaded_file):
         """載入和預處理數據"""
         try:
-            # 讀取Excel文件
+            # 讀取Excel文件 - 添加編碼處理
             df = pd.read_excel(uploaded_file)
+            
+            # 清理列名中的異常字符
+            df.columns = df.columns.astype(str)
+            cleaned_columns = []
+            for col in df.columns:
+                # 更严格的字符清理：只保留字母、数字、中文、常用符号
+                import re
+                # 首先移除明显的异常字符模式
+                cleaned_col = str(col)
+                
+                # 检测并移除类似 "key匡省得斗儿俩焯v_right" 这样的异常模式
+                if re.search(r'key.*v_right|[\u0000-\u001f\u007f-\u009f]', cleaned_col):
+                    # 如果包含明显异常模式，尝试提取有意义的部分或使用默认名称
+                    cleaned_col = f"Unknown_Column_{len(cleaned_columns)}"
+                else:
+                    # 正常清理：只保留安全字符
+                    cleaned_col = re.sub(r'[^\w\s\u4e00-\u9fff\-_.()]', '', cleaned_col)
+                    cleaned_col = cleaned_col.strip()
+                    if not cleaned_col:
+                        cleaned_col = f"Column_{len(cleaned_columns)}"
+                
+                cleaned_columns.append(cleaned_col)
+            
+            df.columns = cleaned_columns
             
             # 驗證必需欄位
             required_columns = [
@@ -135,10 +160,20 @@ class TransferRecommendationSystem:
                         df.loc[mask_extreme, 'Notes'] += f"{col}異常值>100000修正; "
                         df.loc[mask_extreme, col] = 100000
             
-            # 字串欄位處理
+            # 字串欄位處理 - 添加異常字符清理
             string_columns = ['Article Description', 'RP Type', 'Site', 'OM']
             for col in string_columns:
-                df[col] = df[col].fillna('').astype(str)
+                if col in df.columns:  # 確保列存在
+                    df[col] = df[col].fillna('').astype(str)
+                    # 更严格的數據內容清理
+                    import re
+                    df[col] = df[col].apply(lambda x: 
+                        re.sub(r'[^\w\s\u4e00-\u9fff\-_()./]', '', str(x)).strip() 
+                        if not re.search(r'key.*v_right|[\u0000-\u001f\u007f-\u009f]', str(x)) 
+                        else 'CLEANED_DATA'
+                    )
+                else:
+                    df[col] = ''  # 如果列不存在，創建空列
             
             # 驗證RP Type值
             valid_rp_types = ['ND', 'RF']
@@ -269,7 +304,7 @@ class TransferRecommendationSystem:
         return candidates
     
     def identify_receive_candidates(self):
-        """識別接收候選"""
+        """識別接收候選 - v1.71 優化：添加SasaNet調撥接收條件"""
         candidates = []
         
         for _, row in self.df.iterrows():
@@ -279,6 +314,7 @@ class TransferRecommendationSystem:
             safety_stock = row['Safety Stock']
             rp_type = row['RP Type']
             effective_sales = self.calculate_effective_sales(row)
+            site = row['Site']
             
             if rp_type == 'RF':
                 # 計算該產品的最高銷量
@@ -289,30 +325,52 @@ class TransferRecommendationSystem:
                 if current_stock == 0 and effective_sales > 0:
                     candidates.append({
                         'Article': article,
-                        'Site': row['Site'],
+                        'Site': site,
                         'OM': row['OM'],
                         'Need_Qty': safety_stock,
                         'Type': '緊急缺貨補貨',
                         'Priority': 1,
                         'Current_Stock': current_stock,
                         'Safety_Stock': safety_stock,
-                        'Effective_Sales': effective_sales
+                        'Effective_Sales': effective_sales,
+                        'Pending_Received': pending,
+                        'Total_Available': current_stock + pending
                     })
                 
-                # 潛在缺貨補貨 (優先順序2)
+                # v1.71 新增：SasaNet 調撥接收條件 (優先順序2)
+                elif (current_stock + pending) < safety_stock and current_stock > 0:
+                    need_qty = safety_stock - (current_stock + pending)
+                    if need_qty > 0:
+                        candidates.append({
+                            'Article': article,
+                            'Site': site,
+                            'OM': row['OM'],
+                            'Need_Qty': need_qty,
+                            'Type': 'SasaNet調撥接收',
+                            'Priority': 2,
+                            'Current_Stock': current_stock,
+                            'Safety_Stock': safety_stock,
+                            'Effective_Sales': effective_sales,
+                            'Pending_Received': pending,
+                            'Total_Available': current_stock + pending
+                        })
+                
+                # 潛在缺貨補貨 (優先順序3)
                 elif (current_stock + pending) < safety_stock and effective_sales == max_sales:
                     need_qty = safety_stock - (current_stock + pending)
                     if need_qty > 0:
                         candidates.append({
                             'Article': article,
-                            'Site': row['Site'],
+                            'Site': site,
                             'OM': row['OM'],
                             'Need_Qty': need_qty,
                             'Type': '潛在缺貨補貨',
-                            'Priority': 2,
+                            'Priority': 3,
                             'Current_Stock': current_stock,
                             'Safety_Stock': safety_stock,
-                            'Effective_Sales': effective_sales
+                            'Effective_Sales': effective_sales,
+                            'Pending_Received': pending,
+                            'Total_Available': current_stock + pending
                         })
         
         # 按優先順序和銷量排序
@@ -571,6 +629,7 @@ class TransferRecommendationSystem:
             'RF過剩轉出': 'RF Excess Transfer', 
             'RF加強轉出': 'RF Enhanced Transfer',
             '緊急缺貨補貨': 'Emergency Restock',
+            'SasaNet調撥接收': 'SasaNet Transfer Receive',
             '潛在缺貨補貨': 'Potential Restock'
         }
         
@@ -826,7 +885,32 @@ def main():
             
             # 顯示資料樣本
             with st.expander("查看資料樣本", expanded=False):
-                st.dataframe(system.df.head(10), use_container_width=True)
+                # 創建用於顯示的數據副本，確保清理所有異常字符
+                display_df = system.df.head(10).copy()
+                
+                # 更严格地清理所有字符串列的顯示內容
+                for col in display_df.columns:
+                    if display_df[col].dtype == 'object':
+                        import re
+                        display_df[col] = display_df[col].astype(str).apply(
+                            lambda x: 'HIDDEN_DATA' if re.search(r'key.*v_right|[\u0000-\u001f\u007f-\u009f]', str(x))
+                            else re.sub(r'[^\w\s\u4e00-\u9fff\-_()./]', '', str(x)).strip()
+                        )
+                
+                # 同时清理列名
+                cleaned_display_columns = []
+                for col in display_df.columns:
+                    if re.search(r'key.*v_right|[\u0000-\u001f\u007f-\u009f]', str(col)):
+                        cleaned_col = f"Unknown_Column_{len(cleaned_display_columns)}"
+                    else:
+                        cleaned_col = re.sub(r'[^\w\s\u4e00-\u9fff\-_()./]', '', str(col)).strip()
+                        if not cleaned_col:
+                            cleaned_col = f"Column_{len(cleaned_display_columns)}"
+                    cleaned_display_columns.append(cleaned_col)
+                
+                display_df.columns = cleaned_display_columns
+                
+                st.dataframe(display_df, use_container_width=True)
             
             # 3. 分析按鈕區塊
             st.markdown('<div class="section-header"><h2>🔍 調貨分析</h2></div>', unsafe_allow_html=True)

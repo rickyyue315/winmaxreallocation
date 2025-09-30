@@ -1,10 +1,11 @@
 """
-📦 調貨建議生成系統 v1.71
+📦 調貨建議生成系統 v1.72
 零售庫存調貨建議生成系統
 
 開發者: MiniMax Agent
 創建日期: 2025-09-18
 更新日期: 2025-09-30
+v1.72: 修正模式B同店舖同SKU轉出/接收衝突問題
 """
 
 import streamlit as st
@@ -377,6 +378,51 @@ class TransferRecommendationSystem:
         candidates.sort(key=lambda x: (x['Priority'], -x['Effective_Sales']))
         return candidates
     
+    def resolve_same_store_conflicts(self, transfer_candidates, receive_candidates):
+        """
+        解決同店舖同SKU衝突問題 - v1.72
+        當同一店舖的同一SKU既被識別為轉出又被識別為接收時，
+        優先保持接收需求，移除轉出候選
+        """
+        # 創建接收候選的查找表 (Store, Article, OM) -> 接收信息
+        receive_lookup = {}
+        for receive in receive_candidates:
+            key = (receive['Site'], receive['Article'], receive['OM'])
+            receive_lookup[key] = receive
+        
+        # 檢查轉出候選中的衝突並移除
+        filtered_transfer_candidates = []
+        conflicts_resolved = []
+        
+        for transfer in transfer_candidates:
+            key = (transfer['Site'], transfer['Article'], transfer['OM'])
+            
+            if key in receive_lookup:
+                # 發現衝突：同店舖同SKU既要轉出又要接收
+                receive_info = receive_lookup[key]
+                conflicts_resolved.append({
+                    'site': transfer['Site'],
+                    'article': transfer['Article'],
+                    'om': transfer['OM'],
+                    'transfer_qty': transfer['Transfer_Qty'],
+                    'transfer_type': transfer['Type'],
+                    'receive_qty': receive_info['Need_Qty'],
+                    'receive_type': receive_info['Type']
+                })
+                # 不添加到過濾後的轉出候選中（優先保持接收）
+                continue
+            else:
+                # 無衝突，保留轉出候選
+                filtered_transfer_candidates.append(transfer)
+        
+        # 記錄衝突解決信息
+        if conflicts_resolved:
+            print(f"🔧 解決了 {len(conflicts_resolved)} 個同店舖同SKU衝突：")
+            for conflict in conflicts_resolved:
+                print(f"   {conflict['site']} - {conflict['article']}: 移除轉出{conflict['transfer_qty']}件({conflict['transfer_type']})，保持接收{conflict['receive_qty']}件({conflict['receive_type']})")
+        
+        return filtered_transfer_candidates, receive_candidates
+    
     def match_transfer_suggestions(self, transfer_candidates, receive_candidates):
         """匹配調貨建議 - 優化同店舖RF轉出"""
         suggestions = []
@@ -594,6 +640,9 @@ class TransferRecommendationSystem:
             # 識別候選
             transfer_candidates = self.identify_transfer_candidates(mode)
             receive_candidates = self.identify_receive_candidates()
+            
+            # 解決同店舖同SKU衝突 - v1.72 新增
+            transfer_candidates, receive_candidates = self.resolve_same_store_conflicts(transfer_candidates, receive_candidates)
             
             # 匹配建議
             suggestions = self.match_transfer_suggestions(transfer_candidates, receive_candidates)

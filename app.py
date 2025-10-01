@@ -1,10 +1,11 @@
 """
-📦 調貨建議生成系統 v1.72
+📦 調貨建議生成系統 v1.73
 零售庫存調貨建議生成系統
 
 開發者: MiniMax Agent
 創建日期: 2025-09-18
-更新日期: 2025-09-30
+更新日期: 2025-10-01
+v1.73: 新增C模式（重點補0）- 極低庫存補充功能
 v1.72: 修正模式B同店舖同SKU轉出/接收衝突問題
 """
 
@@ -65,26 +66,33 @@ class TransferRecommendationSystem:
         self.df = None
         self.transfer_suggestions = None
         self.statistics = None
-        self.mode = "A"  # A: 保守轉貨, B: 加強轉貨
+        self.mode = "A"  # A: 保守轉貨, B: 加強轉貨, C: 重點補0
         
     def calculate_preliminary_statistics(self):
         """計算預先統計數據（預計需求、轉出、接收數量）"""
         if self.df is None:
             return {}
         
-        # 計算A模式和B模式的預計數量
+        # 計算A模式、B模式和C模式的預計數量
         stats_a = self._calculate_mode_statistics("A")
         stats_b = self._calculate_mode_statistics("B")
+        stats_c = self._calculate_mode_statistics("C")
         
         return {
             'conservative': stats_a,
-            'enhanced': stats_b
+            'enhanced': stats_b,
+            'critical_restock': stats_c
         }
     
     def _calculate_mode_statistics(self, mode):
         """計算指定模式的統計數據"""
         transfer_candidates = self.identify_transfer_candidates(mode)
-        receive_candidates = self.identify_receive_candidates()
+        
+        # C模式使用專門的接收候選識別函數
+        if mode == "C":
+            receive_candidates = self.identify_receive_candidates_mode_c()
+        else:
+            receive_candidates = self.identify_receive_candidates()
         
         total_transfer = sum(candidate['Transfer_Qty'] for candidate in transfer_candidates)
         total_receive = sum(candidate['Need_Qty'] for candidate in receive_candidates)
@@ -378,6 +386,55 @@ class TransferRecommendationSystem:
         candidates.sort(key=lambda x: (x['Priority'], -x['Effective_Sales']))
         return candidates
     
+    def identify_receive_candidates_mode_c(self):
+        """
+        識別接收候選 - C模式（重點補0）- v1.73
+        條件：(SaSa Net Stock + Pending Received) ≤ 1
+        補充至：min(Safety Stock, MOQ + 1)
+        """
+        candidates = []
+        
+        for _, row in self.df.iterrows():
+            article = row['Article']
+            current_stock = row['SaSa Net Stock']
+            pending = row['Pending Received']
+            safety_stock = row['Safety Stock']
+            rp_type = row['RP Type']
+            effective_sales = self.calculate_effective_sales(row)
+            site = row['Site']
+            moq = row['MOQ']
+            
+            # C模式只處理RF類型
+            if rp_type == 'RF':
+                total_available = current_stock + pending
+                
+                # C模式條件：總可用量 ≤ 1
+                if total_available <= 1:
+                    # 計算補充目標：取Safety Stock和MOQ+1的較小值
+                    target_stock = min(safety_stock, moq + 1)
+                    need_qty = target_stock - total_available
+                    
+                    if need_qty > 0:
+                        candidates.append({
+                            'Article': article,
+                            'Site': site,
+                            'OM': row['OM'],
+                            'Need_Qty': need_qty,
+                            'Type': '重點補0',
+                            'Priority': 1,  # C模式補0為最高優先級
+                            'Current_Stock': current_stock,
+                            'Safety_Stock': safety_stock,
+                            'Effective_Sales': effective_sales,
+                            'Pending_Received': pending,
+                            'Total_Available': total_available,
+                            'MOQ': moq,
+                            'Target_Stock': target_stock
+                        })
+        
+        # 按銷量排序（高銷量優先）
+        candidates.sort(key=lambda x: -x['Effective_Sales'])
+        return candidates
+    
     def resolve_same_store_conflicts(self, transfer_candidates, receive_candidates):
         """
         解決同店舖同SKU衝突問題 - v1.72
@@ -639,7 +696,12 @@ class TransferRecommendationSystem:
             
             # 識別候選
             transfer_candidates = self.identify_transfer_candidates(mode)
-            receive_candidates = self.identify_receive_candidates()
+            
+            # C模式使用專門的接收候選識別
+            if mode == "C":
+                receive_candidates = self.identify_receive_candidates_mode_c()
+            else:
+                receive_candidates = self.identify_receive_candidates()
             
             # 解決同店舖同SKU衝突 - v1.72 新增
             transfer_candidates, receive_candidates = self.resolve_same_store_conflicts(transfer_candidates, receive_candidates)
@@ -679,7 +741,8 @@ class TransferRecommendationSystem:
             'RF加強轉出': 'RF Enhanced Transfer',
             '緊急缺貨補貨': 'Emergency Restock',
             'SasaNet調撥接收': 'SasaNet Transfer Receive',
-            '潛在缺貨補貨': 'Potential Restock'
+            '潛在缺貨補貨': 'Potential Restock',
+            '重點補0': 'Critical Zero Restock'
         }
         
         # 重命名存在的列
@@ -867,11 +930,16 @@ def main():
         st.subheader("🎯 轉貨策略選擇")
         mode = st.radio(
             "選擇轉貨模式：",
-            ["A: 保守轉貨", "B: 加強轉貨"],
-            help="A模式：RF類型20%限制；B模式：RF類型50%限制，基於MOQ+1件"
+            ["A: 保守轉貨", "B: 加強轉貨", "C: 重點補0"],
+            help="A模式：RF類型20%限制；B模式：RF類型50%限制，基於MOQ+1件；C模式：重點補充極低庫存（≤1件）至安全水位"
         )
         
-        transfer_mode = "A" if "A:" in mode else "B"
+        if "A:" in mode:
+            transfer_mode = "A"
+        elif "B:" in mode:
+            transfer_mode = "B"
+        else:
+            transfer_mode = "C"
     
     # 主內容區域
     
@@ -931,6 +999,17 @@ def main():
                         st.metric("預計接收", enhanced['estimated_receive'])
                     with subcol3:
                         st.metric("預計需求", enhanced['estimated_demand'])
+                
+                with col3:
+                    st.markdown("**C模式 (重點補0):**")
+                    critical = system.preliminary_stats['critical_restock']
+                    subcol1, subcol2, subcol3 = st.columns(3)
+                    with subcol1:
+                        st.metric("預計轉出", critical['estimated_transfer'])
+                    with subcol2:
+                        st.metric("預計接收", critical['estimated_receive'])
+                    with subcol3:
+                        st.metric("預計需求", critical['estimated_demand'])
             
             # 顯示資料樣本
             with st.expander("查看資料樣本", expanded=False):
